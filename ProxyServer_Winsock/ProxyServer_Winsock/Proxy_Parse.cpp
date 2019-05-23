@@ -222,8 +222,8 @@ void Find_And_Rep(int line, HEADER_IN_CACHE tmp)
 {
 	string st;
 	//create temp file
-	ofstream os("temp_file.conf");
-	ifstream is("header_file.conf");
+	ofstream os("Cache\\temp_file.conf");
+	ifstream is("Cache\\header_file.conf");
 	for (int i = 1; i < line; i++)
 	{
 		getline(is, st);
@@ -238,9 +238,9 @@ void Find_And_Rep(int line, HEADER_IN_CACHE tmp)
 	is.close();
 	os.close();
 	//delete the original file
-	int err = remove("header_file.conf");
+	int err = remove("Cache\\header_file.conf");
 	//rename the temp file to name of original file
-	err = rename("temp_file.conf", "header_file.conf");
+	err = rename("Cache\\temp_file.conf", "Cache\\header_file.conf");
 }
 
 void BackUpHeader(HEADER_IN_CACHE tmp)
@@ -362,7 +362,6 @@ UINT Proxy(LPVOID prams)
 	AddrIP.sin_family = AF_INET;
 	AddrIP.sin_port = htons(80);
 	AddrIP.sin_addr = addr;
-
 	//Connect web server:
 	int iResult = connect(ConnectSocket, (sockaddr *)&AddrIP, sizeof AddrIP);
 	if (iResult == SOCKET_ERROR) {
@@ -426,7 +425,7 @@ UINT Proxy(LPVOID prams)
 				//khong nhan body tu web server
 				//lay noi dung trong cache de tra ve client
 				//LAY DU LIEU TU BO NHO CACHE
-				ifstream inp(headcache.filename, ios::binary | ios::in);
+				ifstream inp("Cache\\"+headcache.filename, ios::binary | ios::in);
 				int cnt;
 				cnt = 0;
 				cnt = headcache.size;
@@ -462,7 +461,7 @@ UINT Proxy(LPVOID prams)
 					//khong nhan body tu web server
 					//lay noi dung trong cache de tra ve client
 					//LAY DU LIEU TU BO NHO CACHE
-					ifstream inp(headcache.filename, ios::binary | ios::in);
+					ifstream inp("Cache\\"+headcache.filename, ios::binary | ios::in);
 					int cnt;
 					cnt = 0;
 					cnt = headcache.size;
@@ -485,7 +484,7 @@ UINT Proxy(LPVOID prams)
 	//************************************************************************************************************
 	//Get body response from web server:
 	int bytes_rev = 0, sum_bytes = 0;
-	ofstream out(filename + ".conf", ios::binary | ios::out);
+	ofstream out("Cache\\"+filename + ".conf", ios::binary | ios::out);
 	do
 	{
 		bytes_rev = recv(ConnectSocket, body_res, DEFAULT_BUFLEN, 0);
