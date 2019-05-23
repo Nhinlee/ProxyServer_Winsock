@@ -97,8 +97,9 @@ bool UpdateBlacklist(string input)
 	return true;
 }
 
-char* strtochar(string s, char* a)
+char* strtochar(string s)
 {
+	char *a = new char[s.length() + 1];
 	int n = s.length();
 	for (int i = 0; i < n; i++)
 		a[i] = s[i];
@@ -159,6 +160,7 @@ string GetFileName(char *str, int len)
 	}
 	return res;
 }
+
 HEADER_IN_CACHE Find_In_Cache(string filename)
 {
 	HEADER_IN_CACHE tmp;
@@ -198,12 +200,15 @@ HEADER_IN_CACHE Find_In_Cache(string filename)
 	is.close();
 	return tmp;
 }
+
 string Get_Last_Modified(char *header_res, int len)
 {
 	string h_res = chartostr(header_res, len), res;
 	int pos = h_res.find("Last-Modified: ");
 	if (pos == -1)
 		pos = h_res.find("Date: ");
+	if (pos == -1)
+		return NULL;
 	int i;
 	for (i = pos; h_res[i] != ' '; i++)
 		;//do nothing
@@ -212,6 +217,7 @@ string Get_Last_Modified(char *header_res, int len)
 		res += h_res[i];
 	return res;
 }
+
 void Find_And_Rep(int line, HEADER_IN_CACHE tmp)
 {
 	string st;
@@ -236,6 +242,7 @@ void Find_And_Rep(int line, HEADER_IN_CACHE tmp)
 	//rename the temp file to name of original file
 	err = rename("temp_file.conf", "header_file.conf");
 }
+
 void BackUpHeader(HEADER_IN_CACHE tmp)
 {
 	ifstream is("header_file.conf");
@@ -275,6 +282,7 @@ void BackUpHeader(HEADER_IN_CACHE tmp)
 		}
 	}
 }
+
 UINT Proxy(LPVOID prams)
 {
 	cout << "Da co Client ket noi !!! \n\n";
@@ -327,11 +335,10 @@ UINT Proxy(LPVOID prams)
 	{
 		//Update 403 request:
 		Update403("403.conf");
-		char a[5001];
-		char* res = strtochar(fbd403, a);
+		char* res = strtochar(fbd403);
 		bytes = send(ClientSocket, res, (int)strlen(res), 0);
 		fbd403.clear();
-		delete res;
+		delete []res;
 		cout << "-------------Web in black list----------------" << endl;
 		closesocket(ClientSocket);
 		return 0;
@@ -339,12 +346,6 @@ UINT Proxy(LPVOID prams)
 
 	//GET IP from Host name of web server:
 	hostent *remoteHost = gethostbyname(dname);
-	/*if (remoteHost->h_length == 0)
-	{
-		closesocket(ClientSocket);
-		std::cout << "Khong the Get IP !!!" << endl << endl;
-		return 0;
-	}*/
 	in_addr addr;
 	addr.s_addr = *(u_long *)remoteHost->h_addr_list[0];
 
@@ -373,9 +374,9 @@ UINT Proxy(LPVOID prams)
 	else cout << "Connect Success to Web\n\n";
 	//************************************************************************************************************
 	//TIM KIEM filename TRONG CACHE CUA PROXY SERVER
-	HEADER_IN_CACHE temp;
-	temp = { false,"","",0 };
-	temp = Find_In_Cache(filename);
+	HEADER_IN_CACHE headcache;
+	headcache = { false,"","",0 };
+	headcache = Find_In_Cache(filename);
 	//************************************************************************************************************
 	//Send request from client to web server
 	bytes = send(ConnectSocket, request, bytes, 0);
@@ -393,7 +394,7 @@ UINT Proxy(LPVOID prams)
 		else endhead = 0;
 		id++;
 	}
-	if (chartostr(header_res, id).find(" 206 ") != -1)
+	if (head.find(" 206 ") != -1)
 		filename = filename;
 	//************************************************************************************************************
 	string headerdate = Get_Last_Modified(header_res, id);//LAY LAST MODIFIED HOAC DATE HEADER TRONG RESPONSE TU WEB SERVER
@@ -415,22 +416,20 @@ UINT Proxy(LPVOID prams)
 	//************************************************************************************************************
 	//XY LY HEADER VA BODY TRONG CAC TRUONG HOP CU THE
 	bool err200or304 = true;
-	if (chartostr(header_res, id).find("304 Not Modified") == -1 && chartostr(header_res, id).find("200 OK") == -1)
+	if (head.find("304 Not Modified") == -1 && head.find("200 OK") == -1)
 		err200or304 = false;
 	if (client_cache == false)
 	{
-		if (temp.Exist == false)
-			;//do nothing
-		else
-			if (temp.date == headerdate && err200or304)
+		if (headcache.Exist)
+			if (headcache.date == headerdate && err200or304)
 			{
 				//khong nhan body tu web server
 				//lay noi dung trong cache de tra ve client
 				//LAY DU LIEU TU BO NHO CACHE
-				ifstream inp(temp.filename, ios::binary | ios::in);
+				ifstream inp(headcache.filename, ios::binary | ios::in);
 				int cnt;
 				cnt = 0;
-				cnt = temp.size;
+				cnt = headcache.size;
 				while (cnt > 0)
 				{
 					char a[1460];
@@ -438,7 +437,6 @@ UINT Proxy(LPVOID prams)
 					for (int i = 0; i < c; i++)
 						inp.read(a + i, 1);
 					int b = send(ClientSocket, a, c, 0);
-					cout << b << " bytes sent\n";
 					cnt -= c;
 				}
 				inp.close();
@@ -446,12 +444,10 @@ UINT Proxy(LPVOID prams)
 				closesocket(ConnectSocket);
 				return 0;
 			}
-			else
-				;//do nothing
 	}
 	else
 	{
-		if (chartostr(header_res, id).find("304 Not Modified") != -1)
+		if (head.find("304 Not Modified") != -1)
 		{
 			//dung chuong trinh
 			closesocket(ConnectSocket);
@@ -460,17 +456,16 @@ UINT Proxy(LPVOID prams)
 		}
 		else
 		{
-			//200 OK
-			if (chartostr(header_res, id).find("200 OK") != -1)
-				if (temp.date == headerdate && err200or304)
+			if (head.find("200 OK") != -1)
+				if (headcache.date == headerdate && err200or304)
 				{
 					//khong nhan body tu web server
 					//lay noi dung trong cache de tra ve client
 					//LAY DU LIEU TU BO NHO CACHE
-					ifstream inp(temp.filename, ios::binary | ios::in);
+					ifstream inp(headcache.filename, ios::binary | ios::in);
 					int cnt;
 					cnt = 0;
-					cnt = temp.size;
+					cnt = headcache.size;
 					while (cnt > 0)
 					{
 						char a[1460];
@@ -478,7 +473,6 @@ UINT Proxy(LPVOID prams)
 						for (int i = 0; i < c; i++)
 							inp.read(a + i, 1);
 						int b = send(ClientSocket, a, c, 0);
-						cout << b << " bytes sent\n";
 						cnt -= c;
 					}
 					inp.close();
@@ -486,8 +480,6 @@ UINT Proxy(LPVOID prams)
 					closesocket(ConnectSocket);
 					return 0;
 				}
-				else
-					;//do nothing		
 		}
 	}
 	//************************************************************************************************************
@@ -538,12 +530,12 @@ UINT Proxy(LPVOID prams)
 	out.close();
 	//************************************************************************************************************
 	//BACKUP HEADER VAO CACHE
-	temp.date = headerdate;
-	temp.Exist = true;
-	temp.filename = filename;
-	temp.size = sum_bytes;
+	headcache.date = headerdate;
+	headcache.Exist = true;
+	headcache.filename = filename;
+	headcache.size = sum_bytes;
 	if (err200or304)
-		BackUpHeader(temp);
+		BackUpHeader(headcache);
 	//************************************************************************************************************
 	cout << sum_bytes << endl;
 	cout << "Da Thuc Hien Xong !\n\n";
