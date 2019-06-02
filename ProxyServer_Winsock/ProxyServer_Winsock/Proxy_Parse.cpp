@@ -3,6 +3,7 @@
 #include<time.h>
 #include <sstream>
 #include <set>
+
 //data:
 map<string, int> blacklist;
 string fbd403;
@@ -169,7 +170,7 @@ HEADER_IN_CACHE Find_In_Cache(string filename)
 	tmp.date = "";
 	tmp.filename = "";
 	tmp.size = 0;
-	ifstream is("header_file.conf");
+	ifstream is("Cache\\header_file.conf");
 	if (is.fail())
 		return tmp;
 	else
@@ -208,7 +209,7 @@ string Get_Last_Modified(char *header_res, int len)
 	if (pos == -1)
 		pos = h_res.find("Date: ");
 	if (pos == -1)
-		return NULL;
+		return "";
 	int i;
 	for (i = pos; h_res[i] != ' '; i++)
 		;//do nothing
@@ -245,10 +246,10 @@ void Find_And_Rep(int line, HEADER_IN_CACHE tmp)
 
 void BackUpHeader(HEADER_IN_CACHE tmp)
 {
-	ifstream is("header_file.conf");
+	ifstream is("Cache\\header_file.conf");
 	if (is.fail())
 	{
-		ofstream os("header_file.conf");
+		ofstream os("Cache\\header_file.conf");
 		os << tmp.filename + ".conf" << '\t' << tmp.date << '\t' << tmp.size << '\n';
 		os.close();
 	}
@@ -267,7 +268,7 @@ void BackUpHeader(HEADER_IN_CACHE tmp)
 		}
 		if (ln == -1)
 		{
-			ofstream os("header_file.conf", ios::in | ios::out | ios::app);
+			ofstream os("Cache\\header_file.conf", ios::in | ios::out | ios::app);
 			os << tmp.filename + ".conf" << '\t' << tmp.date << '\t' << tmp.size << '\n';
 			os.close();
 			is.close();
@@ -283,21 +284,46 @@ void BackUpHeader(HEADER_IN_CACHE tmp)
 	}
 }
 
+string GetHeader(SOCKET temp, char* header_res)
+{
+	string head; 
+	int endhead = 0, id = 0;
+	while (endhead < 4)
+	{
+		int bytes = recv(temp, header_res + id, 1, 0);
+		if (bytes <= 0)
+			break;
+		head.push_back(header_res[id]);
+		cout << header_res[id];
+		if (header_res[id] == '\r' || header_res[id] == '\n')
+			endhead++;
+		else endhead = 0;
+		id++;
+	}
+	header_res[id] = '\0';
+	return head;
+}
+
 UINT Proxy(LPVOID prams)
 {
 	cout << "Da co Client ket noi !!! \n\n";
 	// Initialize buffer memory and ClientSocket:
-	SOCKET ClientSocket = (SOCKET)prams;
+	SOCKET ClientSocket = (SOCKET)prams;	
 	// Buffer:
-	char request[5000] = { 0 }, dname[100] = { 0 }, ip[16] = { 0 },
+	char header_request[5000] = { 0 }, body_request[DEFAULT_BUFLEN], dname[100] = { 0 }, ip[16] = { 0 },
 		body_res[DEFAULT_BUFLEN] = { 0 }, header_res[5000] = { 0 };
+	int header_length, content_length;
+	string head;
+
 	//************************************************************************************************************
 	// Recieve Request from Client( Browser).
-	int bytes = recv(ClientSocket, request, sizeof request, 0);
-	if (bytes > 0) {
-		cout << "Bytes received:" << bytes << endl << request;
+	head = GetHeader(ClientSocket, header_request);
+	header_length = head.length();
+
+	if (header_length > 0) {
+		cout << "Bytes received:" << header_length << '\n' << head << '\n';
 	}
-	else if (bytes == 0)
+	else if (header_length == 0)
 	{
 		cout << " No Request !!!\n";
 		closesocket(ClientSocket);
@@ -305,25 +331,25 @@ UINT Proxy(LPVOID prams)
 	}
 	//************************************************************************************************************
 	bool client_cache;
-	if (chartostr(request, bytes).find("If-Modified-Since: ") == -1 && chartostr(request, bytes).find("If-None-Match: ") == -1)
+	if (head.find("If-Modified-Since: ") == -1 && head.find("If-None-Match: ") == -1)
 		client_cache = false;
 	else
 		client_cache = true;
 	//************************************************************************************************************
 	//If Request is GET or POST method, It's continue processes
-	if (!IsGETMethod(request) && !IsPOSTMethod(request))
+	if (!IsGETMethod(header_request) && !IsPOSTMethod(header_request))
 	{
 		closesocket(ClientSocket);
 		return 0;
 	}
 
 	//Get File Name:
-	string filename = GetFileName(request, bytes);
+	string filename = GetFileName(header_request, header_length);
 
 	//Get Host Name:
-	if (GetDomainName(request, dname) == false)
+	if (GetDomainName(header_request, dname) == false)
 	{
-		cout << "Get Domain Name False !!!";
+		cout << "Get Domain Name False !!!" << '\n';
 		closesocket(ClientSocket);
 		return 0;
 	}
@@ -336,10 +362,10 @@ UINT Proxy(LPVOID prams)
 		//Update 403 request:
 		Update403("403.conf");
 		char* res = strtochar(fbd403);
-		bytes = send(ClientSocket, res, (int)strlen(res), 0);
+		header_length = send(ClientSocket, res, (int)strlen(res), 0);
 		fbd403.clear();
-		delete []res;
-		cout << "-------------Web in black list----------------" << endl;
+		delete[]res;
+		cout << "-------------Web in black list----------------" << '\n';
 		closesocket(ClientSocket);
 		return 0;
 	}
@@ -347,13 +373,18 @@ UINT Proxy(LPVOID prams)
 	//GET IP from Host name of web server:
 	hostent *remoteHost = gethostbyname(dname);
 	in_addr addr;
+	if (remoteHost == NULL)
+	{
+		closesocket(ClientSocket);
+		return 0;
+	}
 	addr.s_addr = *(u_long *)remoteHost->h_addr_list[0];
 
 	//Create SOCKET connect to web server with ip and post 80 default:
 	SOCKET ConnectSocket = INVALID_SOCKET;
 	ConnectSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
 	if (ConnectSocket == INVALID_SOCKET) {
-		cout << "socket failed with error: " << WSAGetLastError() << endl;
+		cout << "socket failed with error: " << WSAGetLastError() << '\n';
 		WSACleanup();
 		return 0;
 	}
@@ -378,40 +409,54 @@ UINT Proxy(LPVOID prams)
 	headcache = Find_In_Cache(filename);
 	//************************************************************************************************************
 	//Send request from client to web server
-	bytes = send(ConnectSocket, request, bytes, 0);
+	header_length = send(ConnectSocket, header_request, header_length, 0);
+	//************************************************************************************************************
+	//If POST Method request:
+	if (IsPOSTMethod(header_request))
+	{
+		content_length = GetContent_Length(head);
+		int bytes, sum_bytes = 0;
+		do
+		{
+			bytes = recv(ClientSocket, body_request, DEFAULT_BUFLEN, 0);
+			bytes = send(ConnectSocket, body_request, bytes, 0);
+			content_length -= bytes;
+			sum_bytes += bytes;
+			if (content_length > 0)
+				continue;
+			if (content_length < DEFAULT_BUFLEN)
+				break;
+		} while (content_length > 0);
+		cout << "Bytes send from Client to Server: " << sum_bytes << "\n";
+	}
+
+	//************************************************************************************************************
+
+
+	//-------------------------------------------------------------------------------------------//
+
+
 	//************************************************************************************************************
 	//Recieve Header Respones:
-	int id = 0, endhead = 0;
-	string head;
-	while (endhead < 4)
+	head = GetHeader(ConnectSocket, header_res);
+	header_length = head.length();
+	if (header_length == 0)
 	{
-		bytes = recv(ConnectSocket, header_res + id, 1, 0);
-		head.push_back(header_res[id]);
-		cout << header_res[id];
-		if (header_res[id] == '\r' || header_res[id] == '\n')
-			endhead++;
-		else endhead = 0;
-		id++;
+		cout << "no reponse header !!!\n";
+		closesocket(ClientSocket);
+		closesocket(ConnectSocket);
+		return 0;
 	}
-	if (head.find(" 206 ") != -1)
-		filename = filename;
 	//************************************************************************************************************
-	string headerdate = Get_Last_Modified(header_res, id);//LAY LAST MODIFIED HOAC DATE HEADER TRONG RESPONSE TU WEB SERVER
+	string headerdate = Get_Last_Modified(header_res, header_length);//LAY LAST MODIFIED HOAC DATE HEADER TRONG RESPONSE TU WEB SERVER
 	//************************************************************************************************************
 	//Send Header Respones for client( Browser) with id (bytes) exactly:
-	bytes = send(ClientSocket, header_res, id, 0);
-	cout << id << " Byte ---- Xong header roi nhe !\n\n";
+	header_length = send(ClientSocket, header_res, header_length, 0);
+	cout << header_length << " Byte ---- Xong header roi nhe !\n\n";
 	//************************************************************************************************************
 	//Get Content-Length of body res:
-	int ctlength = GetContent_Length(head);
-	cout << "Content-Length: " << ctlength << endl;
-	/*if (head.find("304") != -1)
-	{
-		cout << "\nDu lieu duoc lay tu cache cua browser!!!\n\n";
-		closesocket(ConnectSocket);
-		closesocket(ClientSocket);
-		return 0;
-	}*/
+	content_length = GetContent_Length(head);
+	cout << "Content-Length: " << content_length << '\n';
 	//************************************************************************************************************
 	//XY LY HEADER VA BODY TRONG CAC TRUONG HOP CU THE
 	bool err200or304 = true;
@@ -425,14 +470,14 @@ UINT Proxy(LPVOID prams)
 				//khong nhan body tu web server
 				//lay noi dung trong cache de tra ve client
 				//LAY DU LIEU TU BO NHO CACHE
-				ifstream inp("Cache\\"+headcache.filename, ios::binary | ios::in);
+				ifstream inp("Cache\\" + headcache.filename, ios::binary | ios::in);
 				int cnt;
 				cnt = 0;
 				cnt = headcache.size;
 				while (cnt > 0)
 				{
-					char a[1460];
-					int c = min(1460, cnt);
+					char a[DEFAULT_BUFLEN];
+					int c = min(DEFAULT_BUFLEN, cnt);
 					for (int i = 0; i < c; i++)
 						inp.read(a + i, 1);
 					int b = send(ClientSocket, a, c, 0);
@@ -456,19 +501,19 @@ UINT Proxy(LPVOID prams)
 		else
 		{
 			if (head.find("200 OK") != -1)
-				if (headcache.date == headerdate && err200or304)
+				if (headcache.date == headerdate && err200or304 && headcache.Exist)
 				{
 					//khong nhan body tu web server
 					//lay noi dung trong cache de tra ve client
 					//LAY DU LIEU TU BO NHO CACHE
-					ifstream inp("Cache\\"+headcache.filename, ios::binary | ios::in);
+					ifstream inp("Cache\\" + headcache.filename, ios::binary | ios::in);
 					int cnt;
 					cnt = 0;
 					cnt = headcache.size;
 					while (cnt > 0)
 					{
-						char a[1460];
-						int c = min(1460, cnt);
+						char a[DEFAULT_BUFLEN];
+						int c = min(DEFAULT_BUFLEN, cnt);
 						for (int i = 0; i < c; i++)
 							inp.read(a + i, 1);
 						int b = send(ClientSocket, a, c, 0);
@@ -484,29 +529,32 @@ UINT Proxy(LPVOID prams)
 	//************************************************************************************************************
 	//Get body response from web server:
 	int bytes_rev = 0, sum_bytes = 0;
-	ofstream out("Cache\\"+filename + ".conf", ios::binary | ios::out);
+	ofstream out;
+	if (err200or304 && headerdate!="")
+		out.open("Cache\\" + filename + ".conf", ios::binary | ios::out);
 	do
 	{
 		bytes_rev = recv(ConnectSocket, body_res, DEFAULT_BUFLEN, 0);
+		cout << bytes_rev << " recieved from web server\n";
 		sum_bytes += bytes_rev;
-		ctlength -= bytes_rev;
+		content_length -= bytes_rev;
 		if (bytes_rev > 0) {
-			cout << "Bytes received: " << bytes_rev << endl;
+			//cout << "Bytes received: " << bytes_rev << endl;
 			//backup body to proxy cache
 			string body = chartostr(body_res, bytes_rev);
-			if (err200or304)
+			if (err200or304 && headerdate!="")
 				for (int i = 0; i < bytes_rev; i++)
 					out.write(body_res + i, 1);
 			// Echo the buffer back to the sender
 			int bytes_send = send(ClientSocket, body_res, bytes_rev, 0);
 			if (bytes_send == SOCKET_ERROR) {
-				cout << "send failed with error: " << WSAGetLastError();
+				cout << "send failed with error: " << WSAGetLastError() << '\n';
 				break;
 				closesocket(ConnectSocket);
 				closesocket(ClientSocket);
 				return 0;
 			}
-			if (ctlength > 0)
+			if (content_length > 0)
 				continue;
 			if (bytes_rev < DEFAULT_BUFLEN)
 				break;
@@ -519,24 +567,24 @@ UINT Proxy(LPVOID prams)
 			return 0;
 		}
 		else {
-			cout << "recv failed with error: " << WSAGetLastError();
+			cout << "recv failed with error: " << WSAGetLastError() << '\n';
 			closesocket(ConnectSocket);
 			closesocket(ClientSocket);
-			//WSACleanup();
 			return 0;
 		}
 	} while (bytes_rev > 0);
-	out.close();
+	if (err200or304 && headerdate!="")
+		out.close();
 	//************************************************************************************************************
 	//BACKUP HEADER VAO CACHE
 	headcache.date = headerdate;
 	headcache.Exist = true;
 	headcache.filename = filename;
 	headcache.size = sum_bytes;
-	if (err200or304)
+	if (err200or304 && headerdate!="")
 		BackUpHeader(headcache);
 	//************************************************************************************************************
-	cout << sum_bytes << endl;
+	cout << sum_bytes << '\n';
 	cout << "Da Thuc Hien Xong !\n\n";
 	//Close SOCKET and return function:
 	closesocket(ConnectSocket);

@@ -1,4 +1,4 @@
-#include"stdafx.h"
+﻿#include"stdafx.h"
 #include"Proxy_Parse.h"
 
 //#pragma comment(lib,"Ws2_32.lib")
